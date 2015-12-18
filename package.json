@@ -1,6 +1,6 @@
 {
   "name": "vmadm",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Node.js wrapper around SmartOS vmadm(1M)",
   "main": "lib/index.js",
   "scripts": {
