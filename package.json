@@ -7,7 +7,8 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "assert-plus": "0.1.5"
+    "assert-plus": "0.1.5",
+    "lstream": "0.0.4"
   },
   "author": "Joyent (joyent.com)",
   "directories": {
