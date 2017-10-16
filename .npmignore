@@ -1,0 +1,8 @@
+/Makefile
+/build
+/deps
+/test
+/tools
+/.gitmodules
+/.npmignore
+/coverage
