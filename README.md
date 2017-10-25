@@ -243,6 +243,30 @@ Options:
 - `req_id`
 - `uuid`
 
+### events(opts, handler, callback)
+
+Calls `vmadm events -rj [uuid]`.  The callback is invoked as `callback(err,
+obj)` when the event stream is ready, or has failed to start.  `obj` is an
+object described below.  The handler is invoked as `handler(ev)` per every
+event seen where `ev` is an object describing the event
+seen.
+
+Options:
+
+- `log`
+- `req_id`
+- `uuid`, optional VM UUID to watch, if unset all VMs are watched
+- `name`, optional string identifier used for debug purposes
+
+Callback:
+
+- `err` set only if an error is encountered where the event stream couldn't be
+  created
+- `obj` object
+  - `obj.ev` an object that represents the "ready" event seen from `vmadm
+    events` with the `-r` argument.
+  - `obj.stop` a function to call to stop the event stream.
+
 ## Development
 
 Describe steps necessary for development here.
