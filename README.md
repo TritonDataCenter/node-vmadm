@@ -267,6 +267,39 @@ Callback:
     events` with the `-r` argument.
   - `obj.stop` a function to call to stop the event stream.
 
+This returns the underlying stream object that can be used to listen for
+errors.
+
+Example
+
+``` js
+var opts = {
+  log: log,
+  name: 'My Test Event Listener'
+};
+
+var vs = vmadm.events(opts, handler, ready);
+
+function ready(err, obj) {
+  // err is set if something failed during setup
+  // obj => Object
+  // obj.ev => Initial event with all VM information on the system
+  // obj.stop = Function to call to stop the event stream
+}
+
+function handler(ev) {
+  // Called whenever a new event is seen for any zone
+  // ev => Object
+  // ev.type => "create", "modify", "delete"
+  // ev.vm => VM payload or null (empty when ev.type == "delete")
+  // ev.zonename => zonename
+}
+
+vs.on('error', function (err) {
+  // called when an error is seen *after* the initial setup is complete
+});
+```
+
 ## Development
 
 Describe steps necessary for development here.
