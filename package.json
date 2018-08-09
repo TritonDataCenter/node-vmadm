@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "assert-plus": "^1.0.0",
-    "lstream": "0.0.4"
+    "lstream": "0.0.4",
+    "vasync": "2.2.0"
   },
  "devDependencies": {
    "eslint": "4.19.1",
