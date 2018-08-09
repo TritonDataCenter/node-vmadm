@@ -1,9 +1,11 @@
+/build
+/make_stamps
 /node_modules
+/npm-debug.log
 /tmp
-build
-docs/*.json
-docs/*.html
 cscope.in.out
-cscope.po.out
 cscope.out
+cscope.po.out
+docs/*.html
+docs/*.json
 smf/manifests/bapi.xml
