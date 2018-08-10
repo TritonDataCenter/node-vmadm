@@ -24,7 +24,7 @@ const testutil = require('./testutil');
 const SERVER_ROOT = '/test/servers';
 
 function testSubject() {
-    return new DummyVmadm({'uuid': 'a54cf694-4e7d-4fa4-a697-ae949b91a957',
+    return new DummyVmadm({'serverUuid': 'a54cf694-4e7d-4fa4-a697-ae949b91a957',
                            'serverRoot': SERVER_ROOT,
                            'log': testutil.createBunyanLogger(tap)
                           });
