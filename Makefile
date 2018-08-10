@@ -24,7 +24,7 @@ TAP := ./node_modules/.bin/tap
 # Files
 #
 
-JS_FILES := $(shell find lib -name '*.js')
+JS_FILES := $(shell find {lib,test} -name '*.js')
 ESLINT_FILES := $(JS_FILES)
 
 include ./tools/mk/Makefile.defs
