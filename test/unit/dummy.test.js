@@ -198,7 +198,7 @@ tap.test('DummyVmadm', function (suite) {
             t.error(lookupErr);
             t.ok(vms);
             t.equal(vms.length, 0);
-            t.done();
+            t.end();
         });
     });
 
@@ -224,11 +224,67 @@ tap.test('DummyVmadm', function (suite) {
                         return vm.uuid;
                     }).sort();
                     t.same(foundUuids, [firstUuid, secondUuid].sort());
-                    t.done();
+                    t.end();
                 });
             });
         });
     });
+
+    suite.test('stop', function (t) {
+        mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
+        const vmadm = testSubject();
+        t.plan(6);
+        vmadm.create(payloads.web00, function onCreate(err, info) {
+            t.error(err);
+            // Is the initial state part of the contract, or an implementation
+            // detail?
+            t.notEqual(info.state, 'stopped');
+            const uuid = info.uuid;
+            vmadm.stop({'uuid': uuid}, function onStop(err2) {
+                t.error(err2);
+                vmadm.load({'uuid': uuid}, function onLoad(err3, vm) {
+                    t.error(err3);
+                    t.ok(vm);
+                    t.equal(vm.state, 'stopped');
+                    t.end();
+                });
+            });
+        });
+    });
+
+        suite.test('stop->start', function (t) {
+        mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
+        const vmadm = testSubject();
+        t.plan(10);
+        vmadm.create(payloads.web00, function onCreate(err, info) {
+            t.error(err);
+            // Is the initial state part of the contract, or an implementation
+            // detail?
+            t.notEqual(info.state, 'stopped');
+            const uuid = info.uuid;
+            vmadm.stop({'uuid': uuid}, function onStop(err2) {
+                t.error(err2);
+                vmadm.load({'uuid': uuid}, function onLoad(err3, vm) {
+                    t.error(err3);
+                    t.ok(vm);
+                    t.equal(vm.state, 'stopped');
+                    vmadm.start({'uuid': uuid}, function onStart(err4) {
+                        t.error(err4);
+                        vmadm.load({'uuid': uuid},
+                                   function onReload(err5, vmAgain) {
+                                       t.error(err5);
+                                       t.ok(vmAgain);
+                                       t.equal(vmAgain.state, 'running');
+                                       t.end();
+                                   });
+                    });
+                });
+            });
+        });
+    });
+
+
+    // reboot (need events to test?
 
     suite.end();
 });
