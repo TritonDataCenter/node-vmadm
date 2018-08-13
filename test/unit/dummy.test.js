@@ -16,42 +16,61 @@ const mockfs = require('mock-fs');
 const tap = require('tap');
 const uuidv1 = require('uuid/v1');
 
-
 const DummyVmadm = require('../../lib/dummy');
 const testutil = require('./testutil');
 
-
 const SERVER_ROOT = '/test/servers';
+const SERVER_UUID = 'a54cf694-4e7d-4fa4-a697-ae949b91a957';
+
 
 function testSubject() {
-    return new DummyVmadm({'serverUuid': 'a54cf694-4e7d-4fa4-a697-ae949b91a957',
+    return new DummyVmadm({'serverUuid': SERVER_UUID,
                            'serverRoot': SERVER_ROOT,
                            'log': testutil.createBunyanLogger(tap)
                           });
 }
 
-const payload =
-{
- 'brand': 'joyent',
- 'image_uuid': '643de2c0-672e-11e7-9a3f-ff62fd3708f8',
- 'alias': 'web01',
- 'hostname': 'web01',
- 'max_physical_memory': 512,
- 'quota': 20,
- 'resolvers': ['8.8.8.8', '208.67.220.220'],
- 'nics': [
-  {
-    'nic_tag': 'admin',
-    'ip': '10.88.88.52',
-    'netmask': '255.255.255.0',
-    'gateway': '10.88.88.2'
-  }
- ]
-};
-
 
 tap.test('DummyVmadm', function (suite) {
     suite.afterEach(mockfs.restore);
+
+    const payloads = {
+        'web00': {
+            'brand': 'joyent',
+            'image_uuid': '643de2c0-672e-11e7-9a3f-ff62fd3708f8',
+            'alias': 'web00',
+            'hostname': 'web00',
+            'max_physical_memory': 512,
+            'quota': 20,
+            'resolvers': ['8.8.8.8'],
+            'nics': [
+                {
+                    'nic_tag': 'admin',
+                    'ip': '10.88.88.52',
+                    'netmask': '255.255.255.0',
+                    'gateway': '10.88.88.2'
+                }
+            ]
+        },
+        'web01': {
+            'brand': 'joyent',
+            'image_uuid': '643de2c0-672e-11e7-9a3f-ff62fd3708f8',
+            'alias': 'web01',
+            'hostname': 'web01',
+            'max_physical_memory': 512,
+            'quota': 20,
+            'resolvers': ['8.8.8.8'],
+            'nics': [
+                {
+                    'nic_tag': 'admin',
+                    'ip': '10.88.88.52',
+                    'netmask': '255.255.255.0',
+                    'gateway': '10.88.88.2'
+                }
+            ]
+        }
+    };
+
 
     suite.test('init', function (t) {
         t.plan(0);
@@ -61,28 +80,29 @@ tap.test('DummyVmadm', function (suite) {
     });
 
     suite.test('simple create', function (t) {
-        mockfs({[SERVER_ROOT + '/' + 'a54cf694-4e7d-4fa4-a697-ae949b91a957/vms']: {}});
+        mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
         const vmadm = testSubject();
         t.plan(7);
-        vmadm.create(payload, function onCreate(err, info) {
+        vmadm.create(payloads.web00, function onCreate(err, info) {
             t.error(err);
             t.ok(info);
             t.ok(info.uuid);
             const uuid = info.uuid;
-            const vmFname = SERVER_ROOT + '/' + 'a54cf694-4e7d-4fa4-a697-ae949b91a957/vms/' + uuid + '.json';
+            const vmFname = path.join(SERVER_ROOT, SERVER_UUID, 'vms',
+                                      uuid + '.json');
             t.ok(fs.existsSync(vmFname));
             fs.readFile(vmFname, 'utf8', function onRead(err2, data) {
                 t.error(err2);
                 const vm = JSON.parse(data);
-                t.equal(payload.uuid, uuid);
-                t.equal(payload.hostname, vm.hostname);
+                t.equal(payloads.web00.uuid, uuid);
+                t.equal(payloads.web00.hostname, vm.hostname);
                 t.end();
             });
         });
     });
 
     suite.test('vm does not exist', function (t) {
-        mockfs({[SERVER_ROOT + '/' + 'a54cf694-4e7d-4fa4-a697-ae949b91a957/vms']: {}});
+        mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
         const vmadm = testSubject();
         t.plan(2);
         const uuid = uuidv1();
@@ -94,10 +114,10 @@ tap.test('DummyVmadm', function (suite) {
     });
 
     suite.test('create->exists', function (t) {
-        mockfs({[SERVER_ROOT + '/' + 'a54cf694-4e7d-4fa4-a697-ae949b91a957/vms']: {}});
+        mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
         const vmadm = testSubject();
         t.plan(5);
-        vmadm.create(payload, function onCreate(err, info) {
+        vmadm.create(payloads.web01, function onCreate(err, info) {
             t.error(err);
             t.ok(info);
             t.ok(info.uuid);
@@ -111,10 +131,10 @@ tap.test('DummyVmadm', function (suite) {
     });
 
     suite.test('simple delete', function (t) {
-        mockfs({[SERVER_ROOT + '/' + 'a54cf694-4e7d-4fa4-a697-ae949b91a957/vms']: {}});
+        mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
         const vmadm = testSubject();
         t.plan(6);
-        vmadm.create(payload, function onCreate(err, info) {
+        vmadm.create(payloads.web00, function onCreate(err, info) {
             t.error(err);
             t.ok(info);
             t.ok(info.uuid);
@@ -125,6 +145,46 @@ tap.test('DummyVmadm', function (suite) {
                     t.error(err3);
                     t.notOk(exists);
                     t.end();
+                });
+            });
+        });
+    });
+
+    suite.test('empty lookup', function (t) {
+        mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
+        const vmadm = testSubject();
+        t.plan(3);
+        vmadm.lookup({}, {}, function onLookup(lookupErr, vms) {
+            t.error(lookupErr);
+            t.ok(vms);
+            t.equal(vms.length, 0);
+            t.done();
+        });
+    });
+
+    suite.test('multi-create->lookup', function (t) {
+        mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
+        const vmadm = testSubject();
+        t.plan(10);
+        vmadm.create(payloads.web00, function onCreate(err, info) {
+            t.error(err);
+            t.ok(info);
+            t.ok(info.uuid);
+            const firstUuid = info.uuid;
+            vmadm.create(payloads.web01, function onCreate2(err2, info2) {
+                t.error(err2);
+                t.ok(info2);
+                t.ok(info2.uuid);
+                const secondUuid = info2.uuid;
+                vmadm.lookup({}, {}, function onLookup(lookupErr, vms) {
+                    t.error(lookupErr);
+                    t.ok(vms);
+                    t.equal(vms.length, 2);
+                    const foundUuids = vms.map(function (vm) {
+                        return vm.uuid;
+                    }).sort();
+                    t.same(foundUuids, [firstUuid, secondUuid].sort());
+                    t.done();
                 });
             });
         });
