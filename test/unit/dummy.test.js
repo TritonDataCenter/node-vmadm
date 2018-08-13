@@ -63,7 +63,25 @@ tap.test('DummyVmadm', function (suite) {
             'nics': [
                 {
                     'nic_tag': 'admin',
-                    'ip': '10.88.88.52',
+                    'ip': '10.88.88.53',
+                    'netmask': '255.255.255.0',
+                    'gateway': '10.88.88.2'
+                }
+            ]
+        },
+        'ghost': {
+            'do_not_inventory': true,
+            'brand': 'joyent',
+            'image_uuid': '643de2c0-672e-11e7-9a3f-ff62fd3708f8',
+            'alias': 'ghost',
+            'hostname': 'ghost',
+            'max_physical_memory': 512,
+            'quota': 20,
+            'resolvers': ['8.8.8.8'],
+            'nics': [
+                {
+                    'nic_tag': 'admin',
+                    'ip': '10.88.88.50',
                     'netmask': '255.255.255.0',
                     'gateway': '10.88.88.2'
                 }
@@ -126,6 +144,28 @@ tap.test('DummyVmadm', function (suite) {
                 t.error(err2);
                 t.ok(exists);
                 t.end();
+            });
+        });
+    });
+
+    suite.test('create->exists (dni)', function (t) {
+        mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
+        const vmadm = testSubject();
+        t.plan(7);
+        vmadm.create(payloads.ghost, function onCreate(err, info) {
+            t.error(err);
+            t.ok(info);
+            t.ok(info.uuid);
+            const uuid = info.uuid;
+            vmadm.exists({'uuid': uuid}, function onExists(err2, exists) {
+                t.error(err2);
+                t.notOk(exists);
+                vmadm.exists({'uuid': uuid, include_dni: true},
+                             function onExistsGhost(err3, existsGhost) {
+                                 t.error(err3);
+                                 t.ok(existsGhost);
+                                 t.end();
+                             });
             });
         });
     });
