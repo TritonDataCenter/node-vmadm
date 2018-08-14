@@ -10,8 +10,10 @@
 'use strict';
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
+const fse = require('fs-extra');
 const mockfs = require('mock-fs');
 const tap = require('tap');
 const uuidv1 = require('uuid/v1');
@@ -23,72 +25,71 @@ const SERVER_ROOT = '/test/servers';
 const SERVER_UUID = 'a54cf694-4e7d-4fa4-a697-ae949b91a957';
 
 
-function testSubject() {
+function testSubject(serverRoot) {
     return new DummyVmadm({'serverUuid': SERVER_UUID,
-                           'serverRoot': SERVER_ROOT,
+                           'serverRoot': serverRoot,
                            'log': testutil.createBunyanLogger(tap)
                           });
 }
 
+const payloads = {
+    'web00': {
+        'brand': 'joyent',
+        'image_uuid': '643de2c0-672e-11e7-9a3f-ff62fd3708f8',
+        'alias': 'web00',
+        'hostname': 'web00',
+        'max_physical_memory': 512,
+        'quota': 20,
+        'resolvers': ['8.8.8.8'],
+        'nics': [
+            {
+                'nic_tag': 'admin',
+                'ip': '10.88.88.52',
+                'netmask': '255.255.255.0',
+                'gateway': '10.88.88.2'
+            }
+        ]
+    },
+    'web01': {
+        'brand': 'joyent',
+        'image_uuid': '643de2c0-672e-11e7-9a3f-ff62fd3708f8',
+        'alias': 'web01',
+        'hostname': 'web01',
+        'max_physical_memory': 512,
+        'quota': 20,
+        'resolvers': ['8.8.8.8'],
+        'nics': [
+            {
+                'nic_tag': 'admin',
+                'ip': '10.88.88.53',
+                'netmask': '255.255.255.0',
+                'gateway': '10.88.88.2'
+            }
+        ]
+    },
+    'ghost': {
+        'do_not_inventory': true,
+        'brand': 'joyent',
+        'image_uuid': '643de2c0-672e-11e7-9a3f-ff62fd3708f8',
+        'alias': 'ghost',
+        'hostname': 'ghost',
+        'max_physical_memory': 512,
+        'quota': 20,
+        'resolvers': ['8.8.8.8'],
+        'nics': [
+            {
+                'nic_tag': 'admin',
+                'ip': '10.88.88.50',
+                'netmask': '255.255.255.0',
+                'gateway': '10.88.88.2'
+            }
+        ]
+    }
+};
+
 
 tap.test('DummyVmadm', function (suite) {
     suite.afterEach(mockfs.restore);
-
-    const payloads = {
-        'web00': {
-            'brand': 'joyent',
-            'image_uuid': '643de2c0-672e-11e7-9a3f-ff62fd3708f8',
-            'alias': 'web00',
-            'hostname': 'web00',
-            'max_physical_memory': 512,
-            'quota': 20,
-            'resolvers': ['8.8.8.8'],
-            'nics': [
-                {
-                    'nic_tag': 'admin',
-                    'ip': '10.88.88.52',
-                    'netmask': '255.255.255.0',
-                    'gateway': '10.88.88.2'
-                }
-            ]
-        },
-        'web01': {
-            'brand': 'joyent',
-            'image_uuid': '643de2c0-672e-11e7-9a3f-ff62fd3708f8',
-            'alias': 'web01',
-            'hostname': 'web01',
-            'max_physical_memory': 512,
-            'quota': 20,
-            'resolvers': ['8.8.8.8'],
-            'nics': [
-                {
-                    'nic_tag': 'admin',
-                    'ip': '10.88.88.53',
-                    'netmask': '255.255.255.0',
-                    'gateway': '10.88.88.2'
-                }
-            ]
-        },
-        'ghost': {
-            'do_not_inventory': true,
-            'brand': 'joyent',
-            'image_uuid': '643de2c0-672e-11e7-9a3f-ff62fd3708f8',
-            'alias': 'ghost',
-            'hostname': 'ghost',
-            'max_physical_memory': 512,
-            'quota': 20,
-            'resolvers': ['8.8.8.8'],
-            'nics': [
-                {
-                    'nic_tag': 'admin',
-                    'ip': '10.88.88.50',
-                    'netmask': '255.255.255.0',
-                    'gateway': '10.88.88.2'
-                }
-            ]
-        }
-    };
-
 
     suite.test('init', function (t) {
         t.plan(0);
@@ -99,7 +100,7 @@ tap.test('DummyVmadm', function (suite) {
 
     suite.test('simple create', function (t) {
         mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
-        const vmadm = testSubject();
+        const vmadm = testSubject(SERVER_ROOT);
         t.plan(7);
         vmadm.create(payloads.web00, function onCreate(err, info) {
             t.error(err);
@@ -121,7 +122,7 @@ tap.test('DummyVmadm', function (suite) {
 
     suite.test('vm does not exist', function (t) {
         mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
-        const vmadm = testSubject();
+        const vmadm = testSubject(SERVER_ROOT);
         t.plan(2);
         const uuid = uuidv1();
         vmadm.exists({'uuid': uuid}, function onExists(err, exists) {
@@ -133,7 +134,7 @@ tap.test('DummyVmadm', function (suite) {
 
     suite.test('create->exists', function (t) {
         mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
-        const vmadm = testSubject();
+        const vmadm = testSubject(SERVER_ROOT);
         t.plan(5);
         vmadm.create(payloads.web01, function onCreate(err, info) {
             t.error(err);
@@ -150,7 +151,7 @@ tap.test('DummyVmadm', function (suite) {
 
     suite.test('create->exists (dni)', function (t) {
         mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
-        const vmadm = testSubject();
+        const vmadm = testSubject(SERVER_ROOT);
         t.plan(7);
         vmadm.create(payloads.ghost, function onCreate(err, info) {
             t.error(err);
@@ -172,7 +173,7 @@ tap.test('DummyVmadm', function (suite) {
 
     suite.test('simple delete', function (t) {
         mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
-        const vmadm = testSubject();
+        const vmadm = testSubject(SERVER_ROOT);
         t.plan(6);
         vmadm.create(payloads.web00, function onCreate(err, info) {
             t.error(err);
@@ -192,7 +193,7 @@ tap.test('DummyVmadm', function (suite) {
 
     suite.test('empty lookup', function (t) {
         mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
-        const vmadm = testSubject();
+        const vmadm = testSubject(SERVER_ROOT);
         t.plan(3);
         vmadm.lookup({}, {}, function onLookup(lookupErr, vms) {
             t.error(lookupErr);
@@ -204,7 +205,7 @@ tap.test('DummyVmadm', function (suite) {
 
     suite.test('multi-create->lookup', function (t) {
         mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
-        const vmadm = testSubject();
+        const vmadm = testSubject(SERVER_ROOT);
         t.plan(10);
         vmadm.create(payloads.web00, function onCreate(err, info) {
             t.error(err);
@@ -232,7 +233,7 @@ tap.test('DummyVmadm', function (suite) {
 
     suite.test('stop', function (t) {
         mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
-        const vmadm = testSubject();
+        const vmadm = testSubject(SERVER_ROOT);
         t.plan(6);
         vmadm.create(payloads.web00, function onCreate(err, info) {
             t.error(err);
@@ -252,9 +253,9 @@ tap.test('DummyVmadm', function (suite) {
         });
     });
 
-        suite.test('stop->start', function (t) {
+    suite.test('stop->start', function (t) {
         mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
-        const vmadm = testSubject();
+        const vmadm = testSubject(SERVER_ROOT);
         t.plan(10);
         vmadm.create(payloads.web00, function onCreate(err, info) {
             t.error(err);
@@ -285,6 +286,33 @@ tap.test('DummyVmadm', function (suite) {
 
 
     // reboot (need events to test?
+    suite.end();
+});
+
+// https://github.com/tschaub/mock-fs/issues/246
+tap.test('DummyVmadmRealFs', function (suite) {
+    // TODO: UGH // tests and jobs
+    suite.jobs = 1;
+    const testDir = path.join(os.tmpdir(), SERVER_ROOT, SERVER_UUID, 'vms');
+    suite.beforeEach(function (cb) {
+        fse.emptyDir(testDir, cb);
+    });
+    // suite.afterEach(function(cb) {
+    //     //fse.remove(testDir, cb);
+    // });
+
+    suite.test('events-ready', function (t) {
+        const vmadm = testSubject(path.join(os.tmpdir(), SERVER_ROOT));
+        t.plan(2);
+        vmadm.events({name: 'unit-test:events-ready'},
+                     function handler() {},
+                     function vmadmEventsReady(err, obj) {
+                         t.error(err);
+                         t.ok(obj);
+                         obj.stop();
+                         t.end();
+                     });
+    });
 
     suite.end();
 });
