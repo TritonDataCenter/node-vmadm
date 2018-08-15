@@ -17,6 +17,7 @@ const fse = require('fs-extra');
 const mockfs = require('mock-fs');
 const tap = require('tap');
 const uuidv1 = require('uuid/v1');
+const vasync = require('vasync');
 
 const DummyVmadm = require('../../lib/dummy');
 const testutil = require('./testutil');
@@ -323,9 +324,8 @@ tap.test('DummyVmadmRealFs', function (suite) {
         // TODO: Is this really what we call it?
         let streamStop = null;
         let uuid = null;
-        vmadm.events({name: 'unit-test:events-ready'},
+        vmadm.events({name: 'unit-test:events->create'},
                      function handler(evt) {
-                         console.log(evt);
                          t.ok(evt);
                          t.equal(evt.type, 'create');
                          t.equal(evt.vm.uuid, uuid);
@@ -346,6 +346,95 @@ tap.test('DummyVmadmRealFs', function (suite) {
                          });
 
                      });
+    });
+
+    suite.test('multi-events', function (t) {
+        const vmadm = testSubject(path.join(os.tmpdir(), SERVER_ROOT));
+        t.plan(23);
+
+        let streamStop = null;
+        let uuidA = null;
+        let uuidB = null;
+        let evtIdx = 0;
+
+        const vmadmEventsReady = function vmadmEventsReady(err, obj) {
+            t.error(err);
+            t.ok(obj);
+            streamStop = obj.stop;
+            vasync.pipeline({
+                funcs: [
+                    function stepOne(_, next) {
+                        vmadm.create(payloads.web00, function onCreate(err, info) {
+                            t.error(err);
+                            t.ok(info);
+                            t.ok(info.uuid);
+                            uuidA = info.uuid;
+                            next();
+                         });
+                    },
+                    function stepTwo(_, next) {
+                        vmadm.create(payloads.web01, function onCreate(err, info) {
+                            t.error(err);
+                            t.ok(info);
+                            t.ok(info.uuid);
+                            uuidB = info.uuid;
+                            next();
+                         });
+                    },
+                    function stepThree(_, next) {
+                        vmadm.stop({'uuid': uuidA}, function onStop(err) {
+                            t.error(err);
+                            next();
+                        });
+                    },
+                    function stepFour(_, next) {
+                        vmadm.delete({'uuid': uuidB}, function onStop(err) {
+                            t.error(err);
+                            next();
+                        });
+                    }
+                ]
+            });
+        };
+
+
+        let seenModify = false;
+        let seenDelete = false;
+        vmadm.events({name: 'unit-test:multi-events'},
+                     // NOTE: modiy and delete don't come in a consistent order
+                     function handler(evt) {
+                         if (evtIdx === 0) {
+                             t.ok(evt);
+                             t.equal(evt.type, 'create');
+                             t.equal(evt.vm.uuid, uuidA);
+                         } else if (evtIdx === 1) {
+                             t.ok(evt);
+                             t.equal(evt.type, 'create');
+                             t.equal(evt.vm.uuid, uuidB);
+                         } else {
+                             t.ok(evt);
+                             if (evt.type === 'modify') {
+                                 t.equal(evt.vm.uuid, uuidA);
+                                 seenModify = true;
+                             } else if (evt.type === 'delete') {
+                                 t.equal(evt.zonename, uuidB);
+                                 seenDelete = true;
+                             } else {
+                                 throw new Error('unexpected event', evt);
+                             }
+                         }
+
+                         if (evtIdx >= 3) {
+                             t.equal(evtIdx, 3);
+                             t.ok(seenModify);
+                             t.ok(seenDelete);
+                             streamStop();
+                             t.end();
+                         }
+
+                         evtIdx += 1;
+                     },
+                     vmadmEventsReady);
     });
 
     suite.end();
