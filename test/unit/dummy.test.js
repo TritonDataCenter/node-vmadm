@@ -299,7 +299,7 @@ tap.test('DummyVmadmRealFs', function (suite) {
     suite.beforeEach(function (cb) {
         fse.emptyDir(testDir, cb);
     });
-    //Why does this make everything explode?
+    // Why does this make everything explode?
     // suite.afterEach(function(cb) {
     //     fse.remove(testDir, cb);
     // });
@@ -333,12 +333,13 @@ tap.test('DummyVmadmRealFs', function (suite) {
                          t.end();
                      },
                      // NOTE: This is called before the handler above
-                     function vmadmEventsReady(err, obj) {
-                         t.error(err);
+                     function vmadmEventsReady(readyErr, obj) {
+                         t.error(readyErr);
                          t.ok(obj);
                          streamStop = obj.stop;
-                         // TODO: Is this actually guaranteed to fire before the handler?
-                         vmadm.create(payloads.web00, function onCreate(err, info) {
+                         // TODO: Is this actually guaranteed to fire before the
+                         // handler?
+                         vmadm.create(payloads.web00, function onC(err, info) {
                              t.error(err);
                              t.ok(info);
                              t.ok(info.uuid);
@@ -357,14 +358,14 @@ tap.test('DummyVmadmRealFs', function (suite) {
         let uuidB = null;
         let evtIdx = 0;
 
-        const vmadmEventsReady = function vmadmEventsReady(err, obj) {
-            t.error(err);
+        const vmadmEventsReady = function vmadmEventsReady(readyErr, obj) {
+            t.error(readyErr);
             t.ok(obj);
             streamStop = obj.stop;
             vasync.pipeline({
                 funcs: [
                     function stepOne(_, next) {
-                        vmadm.create(payloads.web00, function onCreate(err, info) {
+                        vmadm.create(payloads.web00, function onC(err, info) {
                             t.error(err);
                             t.ok(info);
                             t.ok(info.uuid);
@@ -373,7 +374,7 @@ tap.test('DummyVmadmRealFs', function (suite) {
                          });
                     },
                     function stepTwo(_, next) {
-                        vmadm.create(payloads.web01, function onCreate(err, info) {
+                        vmadm.create(payloads.web01, function onC(err, info) {
                             t.error(err);
                             t.ok(info);
                             t.ok(info.uuid);
