@@ -289,16 +289,18 @@ tap.test('DummyVmadm', function (suite) {
     suite.end();
 });
 
-// https://github.com/tschaub/mock-fs/issues/246
+// No mock-fs support for fs.watch:
+//   https://github.com/tschaub/mock-fs/issues/246
 tap.test('DummyVmadmRealFs', function (suite) {
-    // TODO: UGH // tests and jobs
+    // Serialize these tests since they use the real fs
     suite.jobs = 1;
     const testDir = path.join(os.tmpdir(), SERVER_ROOT, SERVER_UUID, 'vms');
     suite.beforeEach(function (cb) {
         fse.emptyDir(testDir, cb);
     });
+    //Why does this make everything explode?
     // suite.afterEach(function(cb) {
-    //     //fse.remove(testDir, cb);
+    //     fse.remove(testDir, cb);
     // });
 
     suite.test('events-ready', function (t) {
@@ -311,6 +313,38 @@ tap.test('DummyVmadmRealFs', function (suite) {
                          t.ok(obj);
                          obj.stop();
                          t.end();
+                     });
+    });
+
+    suite.test('events->create', function (t) {
+        const vmadm = testSubject(path.join(os.tmpdir(), SERVER_ROOT));
+        t.plan(8);
+
+        // TODO: Is this really what we call it?
+        let streamStop = null;
+        let uuid = null;
+        vmadm.events({name: 'unit-test:events-ready'},
+                     function handler(evt) {
+                         console.log(evt);
+                         t.ok(evt);
+                         t.equal(evt.type, 'create');
+                         t.equal(evt.vm.uuid, uuid);
+                         streamStop();
+                         t.end();
+                     },
+                     // NOTE: This is called before the handler above
+                     function vmadmEventsReady(err, obj) {
+                         t.error(err);
+                         t.ok(obj);
+                         streamStop = obj.stop;
+                         // TODO: Is this actually guaranteed to fire before the handler?
+                         vmadm.create(payloads.web00, function onCreate(err, info) {
+                             t.error(err);
+                             t.ok(info);
+                             t.ok(info.uuid);
+                             uuid = info.uuid;
+                         });
+
                      });
     });
 
