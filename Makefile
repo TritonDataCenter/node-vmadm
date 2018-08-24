@@ -53,6 +53,9 @@ $(TAP): $(STAMP_NODE_MODULES)
 $(BUILD):
 	mkdir $@
 
+.PHONY: test
+test: | $(TAP) test-coverage-unit
+
 .PHONY: test-unit
 test-unit: | $(TAP) $(STAMP_NODE_MODULES) $(BUILD)
 	$(TAP) --jobs=$(TEST_UNIT_JOBS) --output-file=$(BUILD)/test.unit.tap test/unit/**/*.test.js
