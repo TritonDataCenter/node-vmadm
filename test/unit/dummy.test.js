@@ -27,10 +27,16 @@ const SERVER_UUID = 'a54cf694-4e7d-4fa4-a697-ae949b91a957';
 
 
 function testSubject(serverRoot) {
-    return new DummyVmadm({'serverUuid': SERVER_UUID,
-                           'serverRoot': serverRoot,
-                           'log': testutil.createBunyanLogger(tap)
-                          });
+    return new DummyVmadm({
+        log: testutil.createBunyanLogger(tap),
+        serverRoot: serverRoot,
+        serverUuid: SERVER_UUID,
+        sysinfo: {
+            'Datacenter Name': 'testdc',
+            'Live Image': '20180806T115631Z',
+            'UUID': SERVER_UUID
+        }
+    });
 }
 
 const payloads = {
