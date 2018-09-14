@@ -290,8 +290,6 @@ tap.test('DummyVmadm', function (suite) {
         });
     });
 
-
-    // reboot (need events to test?
     suite.end();
 });
 
@@ -304,10 +302,6 @@ tap.test('DummyVmadmRealFs', function (suite) {
     suite.beforeEach(function (cb) {
         fse.emptyDir(testDir, cb);
     });
-    // Why does this make everything explode?
-    // suite.afterEach(function(cb) {
-    //     fse.remove(testDir, cb);
-    // });
 
     suite.test('events-ready', function (t) {
         const vmadm = testSubject(path.join(os.tmpdir(), SERVER_ROOT));
