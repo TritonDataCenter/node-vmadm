@@ -17,7 +17,6 @@ const fse = require('fs-extra');
 const mockfs = require('mock-fs');
 const tap = require('tap');
 const uuidv1 = require('uuid/v1');
-const vasync = require('vasync');
 
 const DummyVmadm = require('../../lib/index.dummy');
 const testutil = require('./testutil');
@@ -355,93 +354,82 @@ tap.test('DummyVmadmRealFs', function (suite) {
                      });
     });
 
+    //
+    // This test starts a vmadm.events watcher, and when that emits the "ready"
+    // event, creates a VM (A). From that point, each event seen by the handler
+    // triggers another action which triggers another event until the final
+    // action is triggered and things are torn down.
+    //
+    //    "create" event for VM A triggers: creation of VM B
+    //    "create" event for VM B triggers: stop of VM A
+    //    "modify" event for VM A (due to stop) triggers: deletion of VM B
+    //    "delete" event for VM B is the final event and triggers cleanup
+    //
     suite.test('multi-events', function (t) {
         const vmadm = testSubject(path.join(os.tmpdir(), SERVER_ROOT));
-        t.plan(23);
+        t.plan(19);
 
         let streamStop = null;
         let uuidA = null;
         let uuidB = null;
-        let evtIdx = 0;
 
         const vmadmEventsReady = function vmadmEventsReady(readyErr, obj) {
-            t.error(readyErr);
-            t.ok(obj);
+            t.error(readyErr, 'ready handler should have no error');
+            t.ok(obj, 'ready handler was passed object');
             streamStop = obj.stop;
-            vasync.pipeline({
-                funcs: [
-                    function stepOne(_, next) {
-                        vmadm.create(payloads.web00, function onC(err, info) {
-                            t.error(err);
-                            t.ok(info);
-                            t.ok(info.uuid);
-                            uuidA = info.uuid;
-                            next();
-                         });
-                    },
-                    function stepTwo(_, next) {
-                        vmadm.create(payloads.web01, function onC(err, info) {
-                            t.error(err);
-                            t.ok(info);
-                            t.ok(info.uuid);
-                            uuidB = info.uuid;
-                            next();
-                         });
-                    },
-                    function stepThree(_, next) {
-                        vmadm.stop({'uuid': uuidA}, function onStop(err) {
-                            t.error(err);
-                            next();
-                        });
-                    },
-                    function stepFour(_, next) {
-                        vmadm.delete({'uuid': uuidB}, function onStop(err) {
-                            t.error(err);
-                            next();
-                        });
-                    }
-                ]
+
+            // Do the first create, this kicks things off. When this event is
+            // seen by vmadm.events, it will kick off the next step by calling
+            // the handler.
+            vmadm.create(payloads.web00, function onC(err, info) {
+                t.error(err, 'vmadm.create <A> should succeed');
+                t.ok(info, 'vmadm.create <A> should return VM info');
+                t.ok(info.uuid, 'vmadm.create <A> VM info should have uuid');
+                uuidA = info.uuid;
             });
         };
 
-
-        let seenModify = false;
-        let seenDelete = false;
-        vmadm.events({name: 'unit-test:multi-events'},
-                     // NOTE: modiy and delete don't come in a consistent order
-                     function handler(evt) {
-                         if (evtIdx === 0) {
-                             t.ok(evt);
-                             t.equal(evt.type, 'create');
-                             t.equal(evt.vm.uuid, uuidA);
-                         } else if (evtIdx === 1) {
-                             t.ok(evt);
-                             t.equal(evt.type, 'create');
-                             t.equal(evt.vm.uuid, uuidB);
-                         } else {
-                             t.ok(evt);
-                             if (evt.type === 'modify') {
-                                 t.equal(evt.vm.uuid, uuidA);
-                                 seenModify = true;
-                             } else if (evt.type === 'delete') {
-                                 t.equal(evt.zonename, uuidB);
-                                 seenDelete = true;
-                             } else {
-                                 throw new Error('unexpected event', evt);
-                             }
-                         }
-
-                         if (evtIdx >= 3) {
-                             t.equal(evtIdx, 3);
-                             t.ok(seenModify);
-                             t.ok(seenDelete);
-                             streamStop();
-                             t.end();
-                         }
-
-                         evtIdx += 1;
-                     },
-                     vmadmEventsReady);
+        vmadm.events({
+            name: 'unit-test:multi-events'
+        }, function handler(evt) {
+            if (evt.type === 'create' && evt.vm.uuid === uuidA) {
+                // The first "create" (A) triggers the second create (B)
+                t.ok(evt, 'saw evt for creation of VM A');
+                vmadm.create(payloads.web01, function onC(err, info) {
+                    t.error(err, 'vmadm.create <B> should succeed');
+                    t.ok(info, 'vmadm.create <B> should return VM info');
+                    t.ok(info.uuid,
+                        'vmadm.create <B> VM info should have uuid');
+                    uuidB = info.uuid;
+                });
+            } else if (evt.type === 'create' && evt.vm.uuid === uuidB) {
+                // The second "create" (B) triggers the stop of A
+                t.ok(evt, 'saw evt for creation of VM B');
+                vmadm.stop({'uuid': uuidA}, function onStop(err) {
+                    t.error(err, 'vmadm.stop <A> should succeed');
+                });
+            } else if (evt.type === 'modify') {
+                // The "modify" (due to stop) triggers the delete of B
+                t.ok(evt, 'saw evt for stop of A');
+                t.ok(evt.vm, 'evt for modify should have a vm object');
+                t.equal(evt.vm.uuid, uuidA,
+                    'VM in modify should have A\'s UUID');
+                t.equal(evt.vm.state, 'stopped',
+                    'VM in modify should have state "stopped"');
+                t.equal(evt.zonename, uuidA, 'evt.zonename should be A\'s');
+                vmadm.delete({'uuid': uuidB}, function onStop(err) {
+                    t.error(err, 'vmadm.delete <B> should succeed');
+                });
+            } else if (evt.type === 'delete') {
+                // When we see the "delete" for B, we're done
+                t.ok(evt, 'saw evt for delete of <B>');
+                t.equal(evt.zonename, uuidB, 'evt.zonename should be B\'s');
+                streamStop();
+                t.end();
+            } else {
+                throw new Error('unexpected event', evt);
+            }
+        }, vmadmEventsReady);
     });
 
     suite.end();
