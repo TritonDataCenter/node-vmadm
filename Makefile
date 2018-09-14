@@ -54,7 +54,7 @@ $(BUILD):
 	mkdir $@
 
 .PHONY: test
-test: | $(TAP) test-coverage-unit
+test: test-coverage-unit
 
 .PHONY: test-unit
 test-unit: | $(TAP) $(STAMP_NODE_MODULES) $(BUILD)
