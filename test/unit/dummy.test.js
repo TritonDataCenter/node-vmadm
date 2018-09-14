@@ -40,6 +40,7 @@ function testSubject(serverRoot) {
 
 const payloads = {
     'web00': {
+        'autoboot': true,
         'brand': 'joyent',
         'image_uuid': '643de2c0-672e-11e7-9a3f-ff62fd3708f8',
         'alias': 'web00',
@@ -57,6 +58,7 @@ const payloads = {
         ]
     },
     'web01': {
+        'autoboot': true,
         'brand': 'joyent',
         'image_uuid': '643de2c0-672e-11e7-9a3f-ff62fd3708f8',
         'alias': 'web01',
@@ -74,6 +76,7 @@ const payloads = {
         ]
     },
     'ghost': {
+        'autoboot': true,
         'do_not_inventory': true,
         'brand': 'joyent',
         'image_uuid': '643de2c0-672e-11e7-9a3f-ff62fd3708f8',
@@ -240,12 +243,9 @@ tap.test('DummyVmadm', function (suite) {
     suite.test('stop', function (t) {
         mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
         const vmadm = testSubject(SERVER_ROOT);
-        t.plan(6);
+        t.plan(5);
         vmadm.create(payloads.web00, function onCreate(err, info) {
             t.error(err);
-            // Is the initial state part of the contract, or an implementation
-            // detail?
-            t.notEqual(info.state, 'stopped');
             const uuid = info.uuid;
             vmadm.stop({'uuid': uuid}, function onStop(err2) {
                 t.error(err2);
