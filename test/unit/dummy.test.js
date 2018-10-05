@@ -365,7 +365,7 @@ tap.test('DummyVmadm', function (suite) {
                         t.deepEqual(vmobj.snapshots.map(function _onlyName(s) {
                             return (s.name);
                         }).sort(), [
-                            'snapshot1',
+                            'snapshot1'
                         ], 'should see only 1 snapshot');
                         cb(err);
                     });
@@ -391,7 +391,7 @@ tap.test('DummyVmadm', function (suite) {
                 }
             ]
         }, function donePipeline(err) {
-            t.error(err, 'snapshot actions should all have succeeded')
+            t.error(err, 'snapshot actions should all have succeeded');
             t.end();
         });
     });
@@ -409,6 +409,7 @@ tap.test('DummyVmadm', function (suite) {
         var updatePayload = {
             alias: 'robotic_dolphin',
             autoboot: false, // default is true
+            image_uuid: uuidv4(),
             billing_id: uuidv4(),
             resolvers: '1.1.1.1,1.0.0.1'
         };
@@ -465,7 +466,7 @@ tap.test('DummyVmadm', function (suite) {
                 }
             ]
         }, function donePipeline(err) {
-            t.error(err, 'update actions should all have succeeded')
+            t.error(err, 'update actions should all have succeeded');
             t.end();
         });
     });
