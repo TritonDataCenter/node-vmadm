@@ -17,6 +17,8 @@ const fse = require('fs-extra');
 const mockfs = require('mock-fs');
 const tap = require('tap');
 const uuidv1 = require('uuid/v1');
+const uuidv4 = require('uuid/v4');
+const vasync = require('vasync');
 
 const DummyVmadm = require('../../lib/index.dummy');
 const testutil = require('./testutil');
@@ -287,6 +289,184 @@ tap.test('DummyVmadm', function (suite) {
                     });
                 });
             });
+        });
+    });
+
+    //
+    // This tests the snapshot functionality by:
+    //
+    //  * creating a VM
+    //  * creating 3 snapshots
+    //  * ensuring all 3 snapshots were created
+    //  * rolling back to the first snapshot
+    //  * ensuring snapshots 2 and 3 were deleted
+    //  * delete the remaining snapshot
+    //  * ensuring snapshots is now empty
+    //
+    suite.test('snapshots', function (t) {
+        mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
+        const vmadm = testSubject(SERVER_ROOT);
+        t.plan(16);
+
+        function _createSnapshot(ctx, name, cb) {
+            vmadm.create_snapshot({
+                snapshot_name: name,
+                uuid: ctx.uuid
+            }, function onSnapCreate(err) {
+                t.error(err, 'should be no error creating "' + name + '"');
+                cb(err);
+            });
+        }
+
+        vasync.pipeline({
+            arg: {},
+            funcs: [
+                function _createVm(ctx, cb) {
+                    vmadm.create(payloads.web00, function onCreate(err, info) {
+                        t.error(err, 'create VM for snapshotting');
+                        ctx.uuid = info.uuid;
+                        cb(err);
+                    });
+                }, function _createSnapshot1(ctx, cb) {
+                    _createSnapshot(ctx, 'snapshot1', cb);
+                }, function _createSnapshot2(ctx, cb) {
+                    _createSnapshot(ctx, 'snapshot2', cb);
+                }, function _createSnapshot3(ctx, cb) {
+                    _createSnapshot(ctx, 'snapshot3', cb);
+                }, function _checkSnapshots(ctx, cb) {
+                    vmadm.load({
+                        uuid: ctx.uuid
+                    }, function onLoad(err, vmobj) {
+                        t.error(err, 'load after snapshotting');
+                        t.equal(vmobj.state, 'running', 'VM should be running');
+                        t.deepEqual(vmobj.snapshots.map(function _onlyName(s) {
+                            return (s.name);
+                        }).sort(), [
+                            'snapshot1',
+                            'snapshot2',
+                            'snapshot3'
+                        ], 'should see all 3 snapshots');
+                        cb(err);
+                    });
+                }, function _rollbackSnapshot(ctx, cb) {
+                    vmadm.rollback_snapshot({
+                        snapshot_name: 'snapshot1',
+                        uuid: ctx.uuid
+                    }, function onRollback(err) {
+                        t.error(err, 'rollback to snapshot1');
+                        cb(err);
+                    });
+                }, function _checkSnapshots(ctx, cb) {
+                    vmadm.load({
+                        uuid: ctx.uuid
+                    }, function onLoad(err, vmobj) {
+                        t.error(err, 'load after rollback');
+                        t.equal(vmobj.state, 'running', 'VM should be running');
+                        t.deepEqual(vmobj.snapshots.map(function _onlyName(s) {
+                            return (s.name);
+                        }).sort(), [
+                            'snapshot1',
+                        ], 'should see only 1 snapshot');
+                        cb(err);
+                    });
+                }, function _deleteSnapshot(ctx, cb) {
+                    vmadm.delete_snapshot({
+                        snapshot_name: 'snapshot1',
+                        uuid: ctx.uuid
+                    }, function onRollback(err) {
+                        t.error(err, 'delete snapshot1');
+                        cb(err);
+                    });
+                }, function _checkSnapshots(ctx, cb) {
+                    vmadm.load({
+                        uuid: ctx.uuid
+                    }, function onLoad(err, vmobj) {
+                        t.error(err, 'load after delete');
+                        t.equal(vmobj.state, 'running', 'VM should be running');
+                        t.deepEqual(vmobj.snapshots.map(function _onlyName(s) {
+                            return (s.name);
+                        }).sort(), [], 'should see 0 snapshots');
+                        cb(err);
+                    });
+                }
+            ]
+        }, function donePipeline(err) {
+            t.error(err, 'snapshot actions should all have succeeded')
+            t.end();
+        });
+    });
+
+    //
+    // This tests the vmadm.update functionality by:
+    //
+    //  * creating a VM
+    //  * loading the VM
+    //  * modifying some properties with a vmadm.update
+    //  * loading the VM again to ensure properties changed as expected
+    //
+    suite.test('update', function (t) {
+        mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
+        var updatePayload = {
+            alias: 'robotic_dolphin',
+            autoboot: false, // default is true
+            billing_id: uuidv4(),
+            resolvers: '1.1.1.1,1.0.0.1'
+        };
+        const vmadm = testSubject(SERVER_ROOT);
+        t.plan(5 + (Object.keys(updatePayload).length * 2));
+
+        vasync.pipeline({
+            arg: {},
+            funcs: [
+                function _createVm(ctx, cb) {
+                    vmadm.create(payloads.web00, function onCreate(err, info) {
+                        t.error(err, 'create VM for updating');
+                        ctx.uuid = info.uuid;
+                        cb(err);
+                    });
+                }, function _loadInitialVm(ctx, cb) {
+                    vmadm.load({
+                        uuid: ctx.uuid
+                    }, function onLoad(err, vmobj) {
+                        t.error(err, 'load after creation');
+                        ctx.originalVmobj = vmobj;
+                        cb(err);
+                    });
+                }, function _doUpdates(ctx, cb) {
+                    updatePayload.uuid = ctx.uuid;
+                    vmadm.update(updatePayload, function onUpdate(err) {
+                        t.error(err, 'perform update');
+                        cb(err);
+                    });
+                }, function _loadFinalVm(ctx, cb) {
+                    vmadm.load({
+                        uuid: ctx.uuid
+                    }, function onLoad(err, vmobj) {
+                        var idx;
+                        var field;
+                        var fields = Object.keys(updatePayload);
+                        var origVm = ctx.originalVmobj;
+
+                        t.error(err, 'load after update');
+                        for (idx = 0; idx < fields.length; idx++) {
+                            field = fields[idx];
+                            if (field === 'uuid') {
+                                // This won't change.
+                                continue;
+                            }
+
+                            t.notEqual(origVm[field], vmobj[field],
+                                'expected ' + field + ' to change');
+                            t.equal(vmobj[field], updatePayload[field],
+                                'expected ' + field + ' to match update');
+                        }
+                        cb(err);
+                    });
+                }
+            ]
+        }, function donePipeline(err) {
+            t.error(err, 'update actions should all have succeeded')
+            t.end();
         });
     });
 
