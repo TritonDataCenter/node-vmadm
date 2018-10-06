@@ -607,5 +607,183 @@ tap.test('DummyVmadmRealFs', function (suite) {
         }, vmadmEventsReady);
     });
 
+    //
+    // This tests the vmadm.reprovision functionality by:
+    //
+    //  * creating a VM
+    //  * watching for events from the VM
+    //  * reprovisioning the VM with a new image_uuid
+    //  * ensuring that:
+    //    - all expected events were seen, in order
+    //    - the resulting VM has correct state and image_uuid
+    //
+    suite.test('reprovision', function (t) {
+        var prevEvtCount = 0;
+        var state = {
+            evts: []
+        };
+        var watchingEvents = false;
+        const vmadm = testSubject(path.join(os.tmpdir(), SERVER_ROOT));
+
+        t.plan(11);
+
+        // This exists just to pause from returning from a write until a modify
+        // event has been seen.
+        vmadm._writeValidator = function _writeValidator(_vmobj, cb) {
+            if (!watchingEvents) {
+                cb();
+                return;
+            }
+
+            function waitForEvent() {
+                if (state.evts.length > prevEvtCount) {
+                    prevEvtCount = state.evts.length;
+                    cb();
+                    return;
+                }
+
+                // try again in 50ms
+                setTimeout(waitForEvent, 50);
+            }
+
+            waitForEvent();
+        };
+
+        vasync.pipeline({
+            arg: state,
+            funcs: [
+                function _createVm(ctx, cb) {
+                    vmadm.create(payloads.web00, function onCreate(err, info) {
+                        t.error(err, 'create victim VM');
+                        ctx.uuid = info.uuid;
+                        cb(err);
+                    });
+                }, function _startWatchingEvents(ctx, cb) {
+                    vmadm.events(
+                        { name: 'unit-test:reprovision' },
+                        function handler(evt) {
+                            if (evt.zonename === ctx.uuid &&
+                                evt.type === 'modify') {
+                                ctx.evts.push(evt);
+                            } else {
+                                t.ok(false, 'saw stray event: ' +
+                                    JSON.stringify(evt));
+                            }
+                        },
+                        function onReady(err, obj) {
+                            t.error(err, 'ready and watching events');
+                            watchingEvents = true;
+                            if (obj.stop) {
+                                ctx.eventStopper = obj.stop;
+                            }
+                            cb(err);
+                        });
+                }, function _loadInitialVm(ctx, cb) {
+                    vmadm.load({
+                        uuid: ctx.uuid
+                    }, function onLoad(err, vmobj) {
+                        t.error(err, 'load after creation');
+                        ctx.originalVmobj = vmobj;
+                        cb(err);
+                    });
+                }, function _doReprovision(ctx, cb) {
+                    ctx.newImageUuid = uuidv4();
+
+                    t.notEqual(ctx.originalVmobj.image_uuid, ctx.newImageUuid,
+                        'created new image_uuid');
+
+                    vmadm.reprovision({
+                        image_uuid: ctx.newImageUuid,
+                        uuid: ctx.uuid
+                    }, function onReprovision(err) {
+                        t.error(err, 'perform reprovision');
+                        cb(err);
+                    });
+                }, function _loadFinalVm(ctx, cb) {
+                    vmadm.load({
+                        uuid: ctx.uuid
+                    }, function onLoad(err, vmobj) {
+                        t.error(err, 'load after reprovision');
+
+                        t.equal(ctx.originalVmobj.state, vmobj.state,
+                            'state should match pre-reprovision');
+                        t.equal(ctx.originalVmobj.zone_state, vmobj.zone_state,
+                            'zone_state should match pre-reprovision');
+                        t.equal(ctx.newImageUuid, vmobj.image_uuid,
+                            'image_uuid should have changed');
+
+                        cb(err);
+                    });
+                }, function _checkEvents(ctx, cb) {
+                    var justChanges;
+
+                    watchingEvents = false;
+
+                    if (ctx.eventStopper) {
+                        ctx.eventStopper();
+                    }
+
+                    justChanges = ctx.evts.map(function _mapChanges(evt) {
+                        // Remove last_modified, pid, and zoneid changes (since
+                        // they're not interesting) and then remove the "path"
+                        // property since it's just a duplicate of prettyPath in
+                        // our case.
+                        return evt.changes.filter(
+                            function _removeLastModified(change) {
+                                if ([
+                                    'last_modified',
+                                    'pid',
+                                    'zoneid'
+                                ].indexOf(change.prettyPath) !== -1) {
+                                    return false;
+                                }
+                                return true;
+                            });
+                    });
+
+                    t.deepEqual(justChanges, [
+                        [{
+                            prettyPath: 'state',
+                            path: ['state'],
+                            action: 'changed',
+                            oldValue: 'running',
+                            newValue: 'provisioning'
+                        }], [{
+                            prettyPath: 'zone_state',
+                            path: ['zone_state'],
+                            action: 'changed',
+                            oldValue: 'running',
+                            newValue: 'stopped'
+                        }], [{
+                            prettyPath: 'image_uuid',
+                            path: ['image_uuid'],
+                            action: 'changed',
+                            oldValue: ctx.originalVmobj.image_uuid,
+                            newValue: ctx.newImageUuid
+                        }], [{
+                            prettyPath: 'zone_state',
+                            path: ['zone_state'],
+                            action: 'changed',
+                            oldValue: 'stopped',
+                            newValue: 'running'
+                        }], [{
+                            prettyPath: 'state',
+                            path: ['state'],
+                            action: 'changed',
+                            oldValue: 'provisioning',
+                            newValue: 'running'
+                        }]
+                    ], 'saw expected events');
+
+                    cb();
+                }
+            ]
+        }, function donePipeline(err) {
+            t.error(err, 'reprovision actions should all have succeeded');
+            t.end();
+        });
+    });
+
+
     suite.end();
 });
