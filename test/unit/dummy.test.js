@@ -17,6 +17,8 @@ const fse = require('fs-extra');
 const mockfs = require('mock-fs');
 const tap = require('tap');
 const uuidv1 = require('uuid/v1');
+const uuidv4 = require('uuid/v4');
+const vasync = require('vasync');
 
 const DummyVmadm = require('../../lib/index.dummy');
 const testutil = require('./testutil');
@@ -290,6 +292,185 @@ tap.test('DummyVmadm', function (suite) {
         });
     });
 
+    //
+    // This tests the snapshot functionality by:
+    //
+    //  * creating a VM
+    //  * creating 3 snapshots
+    //  * ensuring all 3 snapshots were created
+    //  * rolling back to the first snapshot
+    //  * ensuring snapshots 2 and 3 were deleted
+    //  * delete the remaining snapshot
+    //  * ensuring snapshots is now empty
+    //
+    suite.test('snapshots', function (t) {
+        mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
+        const vmadm = testSubject(SERVER_ROOT);
+        t.plan(16);
+
+        function _createSnapshot(ctx, name, cb) {
+            vmadm.create_snapshot({
+                snapshot_name: name,
+                uuid: ctx.uuid
+            }, function onSnapCreate(err) {
+                t.error(err, 'should be no error creating "' + name + '"');
+                cb(err);
+            });
+        }
+
+        vasync.pipeline({
+            arg: {},
+            funcs: [
+                function _createVm(ctx, cb) {
+                    vmadm.create(payloads.web00, function onCreate(err, info) {
+                        t.error(err, 'create VM for snapshotting');
+                        ctx.uuid = info.uuid;
+                        cb(err);
+                    });
+                }, function _createSnapshot1(ctx, cb) {
+                    _createSnapshot(ctx, 'snapshot1', cb);
+                }, function _createSnapshot2(ctx, cb) {
+                    _createSnapshot(ctx, 'snapshot2', cb);
+                }, function _createSnapshot3(ctx, cb) {
+                    _createSnapshot(ctx, 'snapshot3', cb);
+                }, function _checkSnapshots(ctx, cb) {
+                    vmadm.load({
+                        uuid: ctx.uuid
+                    }, function onLoad(err, vmobj) {
+                        t.error(err, 'load after snapshotting');
+                        t.equal(vmobj.state, 'running', 'VM should be running');
+                        t.deepEqual(vmobj.snapshots.map(function _onlyName(s) {
+                            return (s.name);
+                        }).sort(), [
+                            'snapshot1',
+                            'snapshot2',
+                            'snapshot3'
+                        ], 'should see all 3 snapshots');
+                        cb(err);
+                    });
+                }, function _rollbackSnapshot(ctx, cb) {
+                    vmadm.rollback_snapshot({
+                        snapshot_name: 'snapshot1',
+                        uuid: ctx.uuid
+                    }, function onRollback(err) {
+                        t.error(err, 'rollback to snapshot1');
+                        cb(err);
+                    });
+                }, function _checkSnapshots(ctx, cb) {
+                    vmadm.load({
+                        uuid: ctx.uuid
+                    }, function onLoad(err, vmobj) {
+                        t.error(err, 'load after rollback');
+                        t.equal(vmobj.state, 'running', 'VM should be running');
+                        t.deepEqual(vmobj.snapshots.map(function _onlyName(s) {
+                            return (s.name);
+                        }).sort(), [
+                            'snapshot1'
+                        ], 'should see only 1 snapshot');
+                        cb(err);
+                    });
+                }, function _deleteSnapshot(ctx, cb) {
+                    vmadm.delete_snapshot({
+                        snapshot_name: 'snapshot1',
+                        uuid: ctx.uuid
+                    }, function onRollback(err) {
+                        t.error(err, 'delete snapshot1');
+                        cb(err);
+                    });
+                }, function _checkSnapshots(ctx, cb) {
+                    vmadm.load({
+                        uuid: ctx.uuid
+                    }, function onLoad(err, vmobj) {
+                        t.error(err, 'load after delete');
+                        t.equal(vmobj.state, 'running', 'VM should be running');
+                        t.deepEqual(vmobj.snapshots.map(function _onlyName(s) {
+                            return (s.name);
+                        }).sort(), [], 'should see 0 snapshots');
+                        cb(err);
+                    });
+                }
+            ]
+        }, function donePipeline(err) {
+            t.error(err, 'snapshot actions should all have succeeded');
+            t.end();
+        });
+    });
+
+    //
+    // This tests the vmadm.update functionality by:
+    //
+    //  * creating a VM
+    //  * loading the VM
+    //  * modifying some properties with a vmadm.update
+    //  * loading the VM again to ensure properties changed as expected
+    //
+    suite.test('update', function (t) {
+        mockfs({[path.join(SERVER_ROOT, SERVER_UUID, 'vms')]: {}});
+        var updatePayload = {
+            alias: 'robotic_dolphin',
+            autoboot: false, // default is true
+            image_uuid: uuidv4(),
+            billing_id: uuidv4(),
+            resolvers: '1.1.1.1,1.0.0.1'
+        };
+        const vmadm = testSubject(SERVER_ROOT);
+        t.plan(5 + (Object.keys(updatePayload).length * 2));
+
+        vasync.pipeline({
+            arg: {},
+            funcs: [
+                function _createVm(ctx, cb) {
+                    vmadm.create(payloads.web00, function onCreate(err, info) {
+                        t.error(err, 'create VM for updating');
+                        ctx.uuid = info.uuid;
+                        cb(err);
+                    });
+                }, function _loadInitialVm(ctx, cb) {
+                    vmadm.load({
+                        uuid: ctx.uuid
+                    }, function onLoad(err, vmobj) {
+                        t.error(err, 'load after creation');
+                        ctx.originalVmobj = vmobj;
+                        cb(err);
+                    });
+                }, function _doUpdates(ctx, cb) {
+                    updatePayload.uuid = ctx.uuid;
+                    vmadm.update(updatePayload, function onUpdate(err) {
+                        t.error(err, 'perform update');
+                        cb(err);
+                    });
+                }, function _loadFinalVm(ctx, cb) {
+                    vmadm.load({
+                        uuid: ctx.uuid
+                    }, function onLoad(err, vmobj) {
+                        var idx;
+                        var field;
+                        var fields = Object.keys(updatePayload);
+                        var origVm = ctx.originalVmobj;
+
+                        t.error(err, 'load after update');
+                        for (idx = 0; idx < fields.length; idx++) {
+                            field = fields[idx];
+                            if (field === 'uuid') {
+                                // This won't change.
+                                continue;
+                            }
+
+                            t.notEqual(origVm[field], vmobj[field],
+                                'expected ' + field + ' to change');
+                            t.equal(vmobj[field], updatePayload[field],
+                                'expected ' + field + ' to match update');
+                        }
+                        cb(err);
+                    });
+                }
+            ]
+        }, function donePipeline(err) {
+            t.error(err, 'update actions should all have succeeded');
+            t.end();
+        });
+    });
+
     suite.end();
 });
 
@@ -425,6 +606,184 @@ tap.test('DummyVmadmRealFs', function (suite) {
             }
         }, vmadmEventsReady);
     });
+
+    //
+    // This tests the vmadm.reprovision functionality by:
+    //
+    //  * creating a VM
+    //  * watching for events from the VM
+    //  * reprovisioning the VM with a new image_uuid
+    //  * ensuring that:
+    //    - all expected events were seen, in order
+    //    - the resulting VM has correct state and image_uuid
+    //
+    suite.test('reprovision', function (t) {
+        var prevEvtCount = 0;
+        var state = {
+            evts: []
+        };
+        var watchingEvents = false;
+        const vmadm = testSubject(path.join(os.tmpdir(), SERVER_ROOT));
+
+        t.plan(11);
+
+        // This exists just to pause from returning from a write until a modify
+        // event has been seen.
+        vmadm._writeValidator = function _writeValidator(_vmobj, cb) {
+            if (!watchingEvents) {
+                cb();
+                return;
+            }
+
+            function waitForEvent() {
+                if (state.evts.length > prevEvtCount) {
+                    prevEvtCount = state.evts.length;
+                    cb();
+                    return;
+                }
+
+                // try again in 50ms
+                setTimeout(waitForEvent, 50);
+            }
+
+            waitForEvent();
+        };
+
+        vasync.pipeline({
+            arg: state,
+            funcs: [
+                function _createVm(ctx, cb) {
+                    vmadm.create(payloads.web00, function onCreate(err, info) {
+                        t.error(err, 'create victim VM');
+                        ctx.uuid = info.uuid;
+                        cb(err);
+                    });
+                }, function _startWatchingEvents(ctx, cb) {
+                    vmadm.events(
+                        { name: 'unit-test:reprovision' },
+                        function handler(evt) {
+                            if (evt.zonename === ctx.uuid &&
+                                evt.type === 'modify') {
+                                ctx.evts.push(evt);
+                            } else {
+                                t.ok(false, 'saw stray event: ' +
+                                    JSON.stringify(evt));
+                            }
+                        },
+                        function onReady(err, obj) {
+                            t.error(err, 'ready and watching events');
+                            watchingEvents = true;
+                            if (obj.stop) {
+                                ctx.eventStopper = obj.stop;
+                            }
+                            cb(err);
+                        });
+                }, function _loadInitialVm(ctx, cb) {
+                    vmadm.load({
+                        uuid: ctx.uuid
+                    }, function onLoad(err, vmobj) {
+                        t.error(err, 'load after creation');
+                        ctx.originalVmobj = vmobj;
+                        cb(err);
+                    });
+                }, function _doReprovision(ctx, cb) {
+                    ctx.newImageUuid = uuidv4();
+
+                    t.notEqual(ctx.originalVmobj.image_uuid, ctx.newImageUuid,
+                        'created new image_uuid');
+
+                    vmadm.reprovision({
+                        image_uuid: ctx.newImageUuid,
+                        uuid: ctx.uuid
+                    }, function onReprovision(err) {
+                        t.error(err, 'perform reprovision');
+                        cb(err);
+                    });
+                }, function _loadFinalVm(ctx, cb) {
+                    vmadm.load({
+                        uuid: ctx.uuid
+                    }, function onLoad(err, vmobj) {
+                        t.error(err, 'load after reprovision');
+
+                        t.equal(ctx.originalVmobj.state, vmobj.state,
+                            'state should match pre-reprovision');
+                        t.equal(ctx.originalVmobj.zone_state, vmobj.zone_state,
+                            'zone_state should match pre-reprovision');
+                        t.equal(ctx.newImageUuid, vmobj.image_uuid,
+                            'image_uuid should have changed');
+
+                        cb(err);
+                    });
+                }, function _checkEvents(ctx, cb) {
+                    var justChanges;
+
+                    watchingEvents = false;
+
+                    if (ctx.eventStopper) {
+                        ctx.eventStopper();
+                    }
+
+                    justChanges = ctx.evts.map(function _mapChanges(evt) {
+                        // Remove last_modified, pid, and zoneid changes (since
+                        // they're not interesting) and then remove the "path"
+                        // property since it's just a duplicate of prettyPath in
+                        // our case.
+                        return evt.changes.filter(
+                            function _removeLastModified(change) {
+                                if ([
+                                    'last_modified',
+                                    'pid',
+                                    'zoneid'
+                                ].indexOf(change.prettyPath) !== -1) {
+                                    return false;
+                                }
+                                return true;
+                            });
+                    });
+
+                    t.deepEqual(justChanges, [
+                        [{
+                            prettyPath: 'state',
+                            path: ['state'],
+                            action: 'changed',
+                            oldValue: 'running',
+                            newValue: 'provisioning'
+                        }], [{
+                            prettyPath: 'zone_state',
+                            path: ['zone_state'],
+                            action: 'changed',
+                            oldValue: 'running',
+                            newValue: 'stopped'
+                        }], [{
+                            prettyPath: 'image_uuid',
+                            path: ['image_uuid'],
+                            action: 'changed',
+                            oldValue: ctx.originalVmobj.image_uuid,
+                            newValue: ctx.newImageUuid
+                        }], [{
+                            prettyPath: 'zone_state',
+                            path: ['zone_state'],
+                            action: 'changed',
+                            oldValue: 'stopped',
+                            newValue: 'running'
+                        }], [{
+                            prettyPath: 'state',
+                            path: ['state'],
+                            action: 'changed',
+                            oldValue: 'provisioning',
+                            newValue: 'running'
+                        }]
+                    ], 'saw expected events');
+
+                    cb();
+                }
+            ]
+        }, function donePipeline(err) {
+            t.error(err, 'reprovision actions should all have succeeded');
+            t.end();
+        });
+    });
+
 
     suite.end();
 });
