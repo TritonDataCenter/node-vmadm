@@ -1,0 +1,58 @@
+#! /bin/bash
+
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+#
+
+#
+# Copyright 2020 Joyent, Inc.
+#
+
+#
+# This script is called as a ExecStartPost script when starting a container for
+# the purpose of configuring NICs.  It is a small wrapper around a per-machine
+# script that is run in the container's net namespace.
+#
+# Before this script starts, all the NICs in the machine's namespace are named
+# mv-<something>, as described in systemd-nspawn(8).  At that point, they have
+# no IP addresses.  Upon completion of this script, each of the MACVLAN
+# instances has been renamed to match that specified in the machine's
+# nics.*.name properties and the required IP addresses have been configured.
+#
+# While this script is running, a special init program is running in the
+# container.  It is blocked on a read from /var/.triton.pipe, which is a FIFO.
+# This script writes to that FIFO, allowing the init program to terminate when
+# this script closes the FIFO.
+#
+
+set -euo pipefail
+export PS4='$LINENO+ '
+set -x
+
+export PATH=/bin:/usr/bin:/sbin:/usr/sbin:/usr/node/bin
+
+uuid=$1
+# XXX /run has noexec.  Consider placing script somewhere else so that it can be
+# run as "$script" rather than "bash $script".
+script=/run/triton/$uuid.post
+
+if [[ ! -f $script ]]; then
+	echo "$0: $script missing or not executable" 1>&2
+	exit 1
+fi
+
+for try in {1..50}; do
+	pid=$((machinectl show --property=Leader "$uuid" 2>/dev/null || true)|
+		awk -F= '$1 == "Leader" {print $2}')
+	[[ -n $pid ]] && break
+	sleep 0.1
+done
+
+# When this shell exits, the pipe is closed and the init process goes on its
+# merry way.
+# XXX The program that is run in the second nsenter should be a statically
+# linked program that resides in /sbin/native.
+nsenter -t "$pid" -n bash "$script" | tee /dev/stdout |
+    nsenter -t "$pid" -a bash -c "cat >/var/.triton.pipe"

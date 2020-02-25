@@ -12,9 +12,10 @@
   },
   "dependencies": {
     "assert-plus": "1.0.0",
+    "deepcopy": "^2.0.0",
     "lstream": "0.0.4",
-    "vasync": "2.2.0",
-    "uuid": "3.3.2"
+    "uuid": "3.3.2",
+    "vasync": "^2.2.0"
   },
   "devDependencies": {
     "bunyan": "1.8.12",
@@ -29,5 +30,7 @@
     "lib": "lib"
   },
   "license": "MPL-2.0",
-  "engines": ["node >=4.0.0"]
+  "engines": [
+    "node >=4.0.0"
+  ]
 }
