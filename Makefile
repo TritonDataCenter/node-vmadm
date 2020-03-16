@@ -40,7 +40,7 @@ NODE = node
 TEST_UNIT_JOBS ?= 4
 BUILD = $(TOP)/build
 CLEAN_FILES += $(BUILD)
-
+ESLINT_FLAGS += --env es6
 
 #
 # Targets

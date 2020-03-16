@@ -15,7 +15,8 @@
     "deepcopy": "^2.0.0",
     "lstream": "0.0.4",
     "uuid": "3.3.2",
-    "vasync": "^2.2.0"
+    "vasync": "^2.2.0",
+    "zfs": "../node-zfs"
   },
   "devDependencies": {
     "bunyan": "1.8.12",

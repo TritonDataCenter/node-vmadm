@@ -684,7 +684,7 @@ tap.test('MachPropString', function (suite) {
             'a', 'ab', 'abc', 'abcd', 'abcde' ];
         for (val in vals) {
             val = vals[val];
-            t.doesNotThrow(setVal, 'foo="${val}"');
+            t.doesNotThrow(setVal, `foo="${val}"`);
             t.strictSame(val, prop.get());
         }
 
