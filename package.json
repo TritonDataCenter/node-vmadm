@@ -16,7 +16,7 @@
     "lstream": "0.0.4",
     "uuid": "3.3.2",
     "vasync": "^2.2.0",
-    "zfs": "../node-zfs"
+    "zfs": "git+https://github.com/joyent/node-zfs.git#linuxcn"
   },
   "devDependencies": {
     "bunyan": "1.8.12",
