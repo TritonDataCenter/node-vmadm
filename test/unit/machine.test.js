@@ -9,12 +9,28 @@
  */
 'use strict';
 
+const mockery = require('mockery');
+mockery.enable({
+    warnOnReplace: true,
+    warnOnUnregistered: false,
+    useCleanCache: false
+});
+const mockzfs = require('../../node_modules/zfs/lib/mock-zfs.js');
+mockery.registerMock('zfs', mockzfs);
+const zfsmod = require('zfs');
+const zfs = zfsmod.zfs;
+const zpool = zfsmod.zpool;
+
 const deepcopy = require('deepcopy');
+const fs = require('fs');
+const mockds = require('../../node_modules/zfs/lib/mock-dataset.js');
 const mockfs = require('mock-fs');
+const path = require('path');
 const sprintf = require('sprintf-js').sprintf;
 const tap = require('tap');
 const testutil = require('./testutil');
 const uuidv4 = require('uuid');
+const vasync = require('vasync');
 const { Machine } = require('../../lib/machine');
 
 class DummyBackend {
@@ -125,7 +141,7 @@ machines[m_uuid(1)] = {
         uuid: m_uuid(1),
         brand: 'lx',
         image_uuid: i_uuid(1),
-        zpool: 'triton'
+        zpool: syspool
     })
 };
 
@@ -136,35 +152,72 @@ function mkfs(pool, imgs, machs) {
             }
         },
         '/var/triton': {
-            'machines': {}
+            'vmadm': {
+                'machines': {}
+            }
         },
-        '/var/lib/machines': {}
+        '/var/lib/machines': {},
+        '/etc/systemd': {
+            'network': {},
+            'nspawn': {},
+            'system': {},
+            'system.control': {}
+        },
+        '/run/systemd': {
+            'network': {},
+            'nspawn': {},
+            'system': {},
+            'system.control': {}
+        }
     };
+    fs['/' + pool] = {};
     for (var image in imgs) {
         image = imgs[image];
         fs['/var/imgadm']['images'][`${pool}-${image}.json`] =
             mockfs.file(images[image]);
     }
-    for (var machine in machs) {
-        machine = machs[machine];
-        fs['/var/triton/vmadm']['machines'][`${machine}.json`] =
-            mockfs.file(machines[machine]);
-    }
 
     return fs;
 }
 
-tap.test('Machine', function (suite) {
+function mkimage(pool, imgs, image, callback) {
+    var dsname = path.join(pool, image);
+    var snapname = dsname + '@final';
+    var mntpt = '/' + dsname;
 
-    // XXX If this is `suite.afterEach(mockfs.restore)` the last suite.test()
-    // requires an extra `t.end()` to avoid a 'not finished' error.
-    suite.teardown(mockfs.restore);
+    vasync.waterfall([
+        function createDs(next) {
+            zfs.create(dsname, next);
+        },
+        function createRootDir(next) {
+            fs.mkdir(path.join(mntpt, 'root'), next);
+        },
+        function createCoresDir(next) {
+            fs.mkdir(path.join(mntpt, 'cores'), next);
+        },
+        function snap(next) {
+            zfs.snapshot(snapname, next);
+        }
+    ], callback);
+}
+
+var syspool = 'testpool';
+
+tap.test('Machine', function (suite) {
+    suite.beforeEach(function (done, t) {
+        mockfs(mkfs(syspool, [i_uuid(1)], []));
+        zpool.create(syspool, null, done);
+    });
+
+    suite.afterEach(function (done) {
+        mockds.reset();
+        mockfs.restore();
+        done();
+    });
 
     suite.test('Machine constructor minimal payload', function (t) {
-        const zpool = 'triton';
         const uuid = uuidv4();
         const image_uuid = i_uuid(1);
-        mockfs(mkfs(zpool, [image_uuid], []));
 
         var opts = {
             log: testutil.createBunyanLogger(tap),
@@ -177,7 +230,7 @@ tap.test('Machine', function (suite) {
             uuid: uuid,
             brand: 'lx',
             image_uuid: image_uuid,
-            zpool: zpool
+            zpool: syspool
         };
 
         var payload = deepcopy(payload1);
@@ -196,8 +249,8 @@ tap.test('Machine', function (suite) {
             max_lwps: 2000,         // DEF_TASKS
             owner_uuid: '00000000-0000-0000-0000-000000000000',
             state: 'provisioning',
-            zfs_filesystem: `${zpool}/${uuid}`,
-            zonepath: `/${zpool}/${uuid}`
+            zfs_filesystem: `${syspool}/${uuid}`,
+            zonepath: `/${syspool}/${uuid}`
         };
 
         for (prop in props) {
@@ -217,9 +270,115 @@ tap.test('Machine', function (suite) {
         t.end();
     });
 
-    suite.test('foo', function (t) {
-        t.ok(true, 'looks good');
-        t.end();
+    suite.test('Machine.create', function (t) {
+        var image_uuid = i_uuid(1);
+        var mach_uuid = uuidv4();
+        var payload = {
+            uuid: mach_uuid,
+            brand: 'lx',
+            image_uuid: image_uuid,
+            customer_metadata: { foo: 'bar' },
+            zpool: syspool
+        };
+        var opts = {
+            log: testutil.createBunyanLogger(tap),
+            backend: new DummyBackend(mach_uuid, {})
+        };
+
+        var mach;
+        vasync.waterfall([
+            function createImage(next) {
+                mkimage(syspool, images, image_uuid, next);
+            }, function initMachine(next) {
+                t.doesNotThrow(function () {
+                    mach = new Machine(opts, payload);
+                }, 'create machine in memory');
+                t.ok(mach, 'constructor returned a machine');
+                if (!mach) {
+                    t.bailout('no machine, skip rest of tests');
+                }
+                next();
+            }, function noConfig(next) {
+                var md_dir = path.join(mach.configfile, 'config');
+                t.throws(function nocfg() { fs.lstatSync(mach.configfile); },
+                    'configfile does not exist');
+                t.throws(function nomd() {
+                    fs.lstatSync(path.join(md_dir, 'metadata.json'));
+                }, 'metadata.json does not exist');
+                t.throws(function notags() {
+                    fs.lstatSync(path.join(md_dir, 'tags.json'));
+                }, 'tags.json does not exist');
+                t.throws(function noroutes() {
+                    fs.lstatSync(path.join(md_dir, 'routes.json'));
+                }, 'routes.json does not exist');
+                next();
+            }, function install(next) {
+                mach.install({}, function (err) {
+                    t.error(err, 'installation succeeded');
+                    next(err);
+                });
+            }, function readConfig(next) {
+                fs.readFile(mach.configfile, function checkConfig(err, data) {
+                    t.error(err, 'read ' + mach.configfile);
+                    if (!err) {
+                        var config = JSON.parse(data);
+                        t.equal(config.uuid, mach_uuid,
+                            'the config is for this machine');
+                        t.equal(config.image_uuid, image_uuid,
+                            'the config is for this machine');
+                        t.ok(!config.hasOwnProperty('customer_metadata'),
+                            'customer_metadata is not in config file');
+                        t.ok(!config.hasOwnProperty('tags'),
+                            'tags is not in config file');
+                        t.ok(!config.hasOwnProperty('routes'),
+                            'routes is not in config file');
+                    }
+                    next(err);
+                });
+            }, function readMetadata(next) {
+                var file = path.join(mach.get('zonepath'),
+                    'config/metadata.json');
+                var exp_cfg = {
+                    'customer_metadata': payload.customer_metadata,
+                    'internal_metadata': {}
+                };
+                fs.readFile(file, function checkConfig(err, data) {
+                    t.error(err, 'read ' + mach.configfile);
+                    if (!err) {
+                        var config = JSON.parse(data);
+                        t.same(config, exp_cfg, 'metadata.json is as expected');
+                    }
+                    next(err);
+                });
+            }, function readTags(next) {
+                var file = path.join(mach.get('zonepath'), 'config/tags.json');
+                var exp_cfg = { };
+                fs.readFile(file, function checkConfig(err, data) {
+                    t.error(err, 'read ' + mach.configfile);
+                    if (!err) {
+                        var config = JSON.parse(data.toString());
+                        // XXX a known failure.  See machine.js comment.
+                        t.same(config, exp_cfg, 'tags.json is as expected');
+                    }
+                    next(err);
+                });
+            }, function readRoutes(next) {
+                var file = path.join(mach.get('zonepath'),
+                    'config/routes.json');
+                var exp_cfg = { };
+                fs.readFile(file, function checkConfig(err, data) {
+                    t.error(err, 'read ' + mach.configfile);
+                    if (!err) {
+                        var config = JSON.parse(data.toString());
+                        t.same(config, exp_cfg, 'routes.json is as expected');
+                    }
+                    next(err);
+                });
+            }
+        ], function (err) {
+            t.error(err, 'installation succeeded');
+            t.end();
+        });
     });
 
     suite.end();
