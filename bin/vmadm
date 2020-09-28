@@ -1454,7 +1454,7 @@ sysinfo.sysInfo(null, function (err, info) {
 
     VM = new vmadm({
         //uuid: self.req.params.uuid,
-        log: bunyan.createLogger({name: 'vmadm', level: 'trace'}),
+        log: bunyan.createLogger({name: 'vmadm'}),
         // req_id: self.req.req_id,
         sysinfo: info
     });
