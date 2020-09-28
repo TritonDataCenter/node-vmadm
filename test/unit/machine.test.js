@@ -33,6 +33,10 @@ const uuidv4 = require('uuid');
 const vasync = require('vasync');
 const { Machine } = require('../../lib/machine');
 
+
+var syspool = 'testpool';
+
+
 class DummyBackend {
     constructor(uuid, opts) {
         this.uuid = uuid;
@@ -145,8 +149,8 @@ machines[m_uuid(1)] = {
     })
 };
 
-function mkfs(pool, imgs, machs) {
-    var fs = {
+function mkfs(pool, imgs, _machs) {
+    var newFs = {
         '/var/imgadm': {
             'images': {
             }
@@ -170,17 +174,17 @@ function mkfs(pool, imgs, machs) {
             'system.control': {}
         }
     };
-    fs['/' + pool] = {};
+    newFs['/' + pool] = {};
     for (var image in imgs) {
         image = imgs[image];
-        fs['/var/imgadm']['images'][`${pool}-${image}.json`] =
+        newFs['/var/imgadm']['images'][`${pool}-${image}.json`] =
             mockfs.file(images[image]);
     }
 
-    return fs;
+    return newFs;
 }
 
-function mkimage(pool, imgs, image, callback) {
+function mkimage(pool, _imgs, image, callback) {
     var dsname = path.join(pool, image);
     var snapname = dsname + '@final';
     var mntpt = '/' + dsname;
@@ -201,10 +205,8 @@ function mkimage(pool, imgs, image, callback) {
     ], callback);
 }
 
-var syspool = 'testpool';
-
 tap.test('Machine', function (suite) {
-    suite.beforeEach(function (done, t) {
+    suite.beforeEach(function (done) {
         mockfs(mkfs(syspool, [i_uuid(1)], []));
         zpool.create(syspool, null, done);
     });
