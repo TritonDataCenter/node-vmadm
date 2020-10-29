@@ -18,6 +18,7 @@
     "uuid": "3.3.2",
     "@hapi/wreck": "^17.0.0",
     "vasync": "^2.2.0",
+    "ws": "^7.3.1",
     "zfs": "git+https://github.com/joyent/node-zfs.git#linuxcn"
   },
   "devDependencies": {
