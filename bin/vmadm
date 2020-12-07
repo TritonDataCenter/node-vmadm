@@ -1470,7 +1470,7 @@ sysinfo.sysInfo(null, function (err, info) {
         }
 
         if (e) {
-            console.error(e.message);
+            console.error(e);
             flushLogs(logs, function () {
                 process.exit(1);
             });
