@@ -1,4 +1,4 @@
-#!/usr/node/bin/node --abort_on_uncaught_exception
+#!/usr/bin/env node --abort_on_uncaught_exception
 /*
  * CDDL HEADER START
  *
@@ -21,23 +21,26 @@
  *
  * CDDL HEADER END
  *
- * Copyright (c) 2019, Joyent, Inc.
+ * Copyright 2020 Joyent, Inc.
  *
  */
 
 var bunyan = require('bunyan');
 var fs = require('fs');
+var path = require('path');
 var vmadm = require('vmadm');
 var nopt = require('nopt');
-//var onlyif = require('onlyif');
 var sprintf = require('sprintf-js').sprintf;
-var sysinfo = require('/usr/triton/sdc-cn-agent/lib/backends/linux/sysinfo');
 var tty = require('tty');
 var util = require('util');
-//var utils = require('utils');
-//var properties = require('/usr/vm/node_modules/props');
 
 var draining_stdout_and_exiting = false;
+
+// This vmadm script expects to live as a node_module inside of cn-agent.
+// /opt/smartdc/agents/lib/node_modules/cn-agent/node_modules/vmadm/bin/vmadm
+var sysinfoPath = path.resolve(__dirname, '..', '..', '..',
+    'lib/backends/linux/sysinfo');
+var sysinfo = require(sysinfoPath);
 
 // pull in stuff from generated props (originating in proptable.js)
 //var BRAND_OPTIONS = properties.BRAND_OPTIONS;
