@@ -1,4 +1,4 @@
-#!/usr/bin/env node --abort_on_uncaught_exception
+#!/usr/bin/env -S node --abort_on_uncaught_exception
 /*
  * CDDL HEADER START
  *
